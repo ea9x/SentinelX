@@ -1,0 +1,117 @@
+.sidebar .privacyBadge {
+  position: relative;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 18px;
+  color: #e2e8f0;
+}
+
+.sidebar .privacyBadge__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.94);
+  color: #e2e8f0;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.sidebar .privacyBadge__summary:hover,
+.sidebar .privacyBadge__summary[aria-expanded="true"] {
+  border-color: #38bdf8;
+  background: #111d32;
+  transform: none;
+}
+
+.sidebar .privacyBadge__label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sidebar .privacyBadge__label strong {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.sidebar .privacyBadge__label small {
+  margin-top: 3px;
+  color: #94a3b8;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.sidebar .privacyBadge .privacyBadge__panel {
+  position: fixed;
+  right: 250px;
+  bottom: 20px;
+  left: auto;
+  z-index: 80;
+  display: block !important;
+  width: min(330px, calc(100vw - 270px));
+  padding: 16px;
+  border: 1px solid #334155;
+  border-radius: 13px;
+  background: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(14px);
+  animation: privacy-panel-in 0.18s ease-out;
+}
+
+.sidebar .privacyBadge__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #38bdf8;
+}
+
+.sidebar .privacyBadge__heading > svg { font-size: 22px; }
+.sidebar .privacyBadge__heading span { display: flex; flex-direction: column; }
+.sidebar .privacyBadge__heading strong { color: #f8fafc; font-size: 13px; }
+.sidebar .privacyBadge__heading small { margin-top: 2px; color: #94a3b8; font-size: 10px; }
+
+.sidebar .privacyBadge__panel p {
+  margin: 13px 0;
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.sidebar .privacyBadge__email {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #1e293b;
+  color: #7dd3fc;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.sidebar .privacyBadge__email span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@keyframes privacy-panel-in {
+  from { opacity: 0; transform: translate(10px, 6px); }
+  to { opacity: 1; transform: translate(0, 0); }
+}
+
+@media (max-width: 700px) {
+  .sidebar .privacyBadge .privacyBadge__panel {
+    right: 14px;
+    bottom: 14px;
+    width: calc(100vw - 28px);
+  }
+}

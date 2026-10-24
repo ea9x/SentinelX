@@ -1,0 +1,75 @@
+.authLogoutOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  background: rgba(3, 8, 18, 0.91);
+  backdrop-filter: blur(16px);
+  animation: authLogoutFade 0.2s ease-out both;
+}
+
+.authLogoutOverlay::before {
+  content: "";
+  position: absolute;
+  width: 470px;
+  height: 470px;
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  border-radius: 50%;
+  box-shadow: 0 0 100px rgba(37, 99, 235, 0.12);
+  animation: authLogoutRing 0.9s ease-out both;
+}
+
+.authLogoutCard {
+  position: relative;
+  z-index: 1;
+  width: min(380px, calc(100vw - 40px));
+  padding: 40px 32px 32px;
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(15, 30, 52, 0.97), rgba(7, 16, 31, 0.99));
+  color: #f8fafc;
+  text-align: center;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.55);
+  animation: authLogoutCardIn 0.36s ease-out both;
+}
+
+.authLogoutIcon {
+  position: relative;
+  display: grid;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 21px;
+  place-items: center;
+  border-radius: 23px;
+  background: linear-gradient(145deg, rgba(14, 165, 233, 0.2), rgba(37, 99, 235, 0.2));
+  color: #38bdf8;
+  font-size: 46px;
+  filter: drop-shadow(0 0 17px rgba(56, 189, 248, 0.4));
+}
+
+.authLogoutIcon > span {
+  position: absolute;
+  right: -7px;
+  bottom: -5px;
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  border: 4px solid #0b1628;
+  border-radius: 50%;
+  background: #2563eb;
+  color: white;
+  font-size: 13px;
+}
+
+.authLogoutCard p { margin: 0 0 8px; color: #38bdf8; font-size: 11px; font-weight: 900; letter-spacing: 0.18em; }
+.authLogoutCard h2 { margin: 0; color: #f8fafc; font-size: 31px; letter-spacing: -0.03em; }
+.authLogoutCard small { display: block; margin-top: 9px; color: #94a3b8; font-size: 13px; }
+.authLogoutProgress { height: 4px; margin-top: 26px; overflow: hidden; border-radius: 999px; background: #1e293b; }
+.authLogoutProgress span { display: block; width: 100%; height: 100%; transform-origin: left; border-radius: inherit; background: linear-gradient(90deg, #38bdf8, #2563eb); animation: authLogoutProgress 0.85s linear both; }
+
+@keyframes authLogoutFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes authLogoutCardIn { from { opacity: 0; transform: translateY(15px) scale(0.94); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes authLogoutRing { from { opacity: 0; transform: scale(0.55); } to { opacity: 1; transform: scale(1); } }
+@keyframes authLogoutProgress { from { transform: scaleX(0); } to { transform: scaleX(1); } }

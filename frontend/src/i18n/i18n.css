@@ -1,0 +1,25 @@
+.language-switcher { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 16px; color:#cbd5e1; font-size:13px; }
+.language-switcher select { color:#f8fafc; background:#0f172a; border:1px solid #475569; border-radius:8px; padding:7px 10px; max-width:140px; }
+.language-switcher--floating { position:fixed; inset-block-start:14px; inset-inline-end:18px; z-index:100; background:#0f172a; padding:8px 12px; border:1px solid #334155; border-radius:10px; }
+html[dir='ltr'] .sidebar { left:0; right:auto; border-left:0; border-right:1px solid #233145; }
+html[dir='ltr'] .sentinel-content { margin-left:230px; margin-right:0; }
+html[dir='rtl'] .sidebar { right:0; left:auto; }
+html[dir='rtl'] .sentinel-content { margin-right:230px; margin-left:0; }
+html[dir='ltr'] .sentinel-layout::before { inset:0 0 0 230px; }
+html[dir='ltr'] .sentinel-background-word { left:calc(230px + (100vw - 230px)/2); }
+html[dir='rtl'] .sentinel-content > * { direction:rtl !important; text-align:right !important; }
+html[dir='ltr'] .sentinel-content > * { direction:ltr !important; text-align:left !important; }
+html[dir='rtl'] .sentinel-content th, html[dir='rtl'] .sentinel-content td { text-align:right !important; }
+html[dir='rtl'] .sidebarIdentityText { align-items:flex-start; text-align:right; }
+html[dir='rtl'] .profilePage, html[dir='rtl'] .loginPage { direction:rtl; text-align:right; }
+html[dir='rtl'] .profileFieldLabel, html[dir='rtl'] .profilePanel label { text-align:right; }
+input[type='email'],input[type='password'],input[type='url'],input[type='number'],code,pre { direction:ltr; unicode-bidi:plaintext; }
+pre,code { text-align:left; }
+.web-scan-form input:not([type='checkbox']),.web-scan-form textarea { direction:ltr; text-align:left; }
+html[dir='rtl'] { font-family:'Segoe UI',Tahoma,Arial,sans-serif; }
+@media(max-width:768px) { .language-switcher--floating { inset-block-start:8px; inset-inline-end:8px; } }
+@media(max-width:640px) {
+  html .sidebar { position:relative; width:100%; height:auto; padding:16px; }
+  html[dir] .sentinel-content { width:100%; margin-left:0; margin-right:0; padding:12px; }
+  .language-switcher--floating { font-size:12px; }
+}

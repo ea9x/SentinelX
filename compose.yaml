@@ -1,0 +1,106 @@
+name: sentinelx
+
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SENTINELX_DB_ROOT_PASSWORD:?Set a random database root password}
+      MYSQL_DATABASE: sentinelx_db
+      MYSQL_USER: sentinelx
+      MYSQL_PASSWORD: ${SENTINELX_DB_PASSWORD:?Set a random database password}
+    volumes:
+      - sentinelx_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -usentinelx -p$${MYSQL_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    restart: unless-stopped
+    command:
+      - zap.sh
+      - -daemon
+      - -host
+      - 0.0.0.0
+      - -port
+      - "8080"
+      - -config
+      - api.key=${SENTINELX_ZAP_API_KEY:?Set a random ZAP API key}
+      - -config
+      - api.addrs.addr.name=.*
+      - -config
+      - api.addrs.addr.regex=true
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      zap:
+        condition: service_started
+    environment: &backend-environment
+      DB_HOST: db
+      DB_USER: sentinelx
+      DB_PASSWORD: ${SENTINELX_DB_PASSWORD:?Set a random database password}
+      DB_NAME: sentinelx_db
+      SECRET_KEY: ${SENTINELX_SECRET_KEY:?Set a random signing key of at least 32 characters}
+      JWT_COOKIE_SECURE: ${JWT_COOKIE_SECURE:-false}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8088}
+      NUCLEI_TIMEOUT_SECONDS: ${NUCLEI_TIMEOUT_SECONDS:-600}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_USE_TLS: ${MAIL_USE_TLS:-true}
+      MAIL_USE_SSL: ${MAIL_USE_SSL:-false}
+      RUNNING_IN_DOCKER: "true"
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: "5000"
+      ZAP_API_URL: http://zap:8080
+      ZAP_API_KEY: ${SENTINELX_ZAP_API_KEY:?Set a random ZAP API key}
+    volumes:
+      - sentinelx_reports:/app/generated_reports
+      - sentinelx_avatars:/app/uploads/avatars
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      zap:
+        condition: service_started
+    environment: *backend-environment
+    command: ["python", "scan_worker.py"]
+    cap_add:
+      - NET_RAW
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8088:80"
+
+volumes:
+  sentinelx_mysql:
+  sentinelx_reports:
+  sentinelx_avatars:

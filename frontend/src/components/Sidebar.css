@@ -1,0 +1,334 @@
+.sidebar{
+    box-sizing:border-box;
+    position:fixed;
+    right:0;
+    top:0;
+
+    width:230px;
+    height:100vh;
+
+    background:#0f172a;
+
+    border-left:1px solid #233145;
+
+    display:flex;
+    flex-direction:column;
+
+    padding:22px;
+
+    color:white;
+    z-index:20;
+    overflow-x:hidden;
+    overflow-y:auto;
+}
+
+.logoSection{
+
+    text-align:center;
+
+    margin-bottom:25px;
+
+    position:relative;
+
+    perspective:700px;
+
+    cursor:default;
+
+}
+
+.shield{
+
+    font-size:45px;
+
+    color:#38bdf8;
+
+    filter:drop-shadow(0 0 8px rgba(56,189,248,.55));
+
+    animation:shieldFloat 3.8s ease-in-out infinite;
+
+    transition:transform .45s ease, filter .45s ease;
+
+}
+
+.logoSection:hover .shield{
+
+    transform:rotateY(180deg) scale(1.12);
+
+    filter:drop-shadow(0 0 18px rgba(56,189,248,.95));
+
+}
+
+.logoSection h2{
+
+    margin:10px 0 4px;
+
+    color:transparent;
+
+    background:linear-gradient(100deg,#38bdf8 15%,#e0f2fe 45%,#2563eb 72%,#38bdf8 100%);
+
+    background-size:220% 100%;
+
+    -webkit-background-clip:text;
+
+    background-clip:text;
+
+    animation:logoShine 4s linear infinite;
+
+    text-shadow:0 0 18px rgba(56,189,248,.16);
+
+}
+
+.logoSection p{
+
+    color:#94a3b8;
+
+    font-size:13px;
+
+}
+
+.sidebarIdentity{
+    display:grid;
+    grid-template-columns:34px minmax(0,1fr) 12px;
+    align-items:center;
+    gap:9px;
+    margin-top:14px;
+    padding:9px;
+    border:1px solid #2d3b50;
+    border-radius:10px;
+    background:#111c2e;
+    color:#e2e8f0;
+    text-align:left;
+    text-decoration:none;
+    width:100%;
+    font:inherit;
+    cursor:pointer;
+    overflow:hidden;
+}
+
+.sidebarIdentity>span:first-child{
+    display:grid;
+    width:34px;
+    height:34px;
+    place-items:center;
+    border-radius:9px;
+}
+.sidebarIdentity>span:first-child img{width:100%;height:100%;border-radius:9px;object-fit:cover;}
+
+.sidebarIdentityText{display:flex;min-width:0;max-width:100%;flex-direction:column;align-items:flex-start;overflow:hidden;}
+.sidebarIdentityText strong{display:block;width:100%;font-size:11px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sidebarIdentityText small{display:block;width:100%;margin-top:2px;color:#94a3b8;font-size:8px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sidebarIdentity:hover{border-color:#38bdf8;}
+.sidebarAccount{position:relative;}
+.sidebarAccountChevron{font-size:9px;color:#64748b;transition:transform .2s ease;}
+.sidebarAccount.isOpen .sidebarAccountChevron{transform:rotate(180deg);color:#38bdf8;}
+.sidebarAccountMenu{position:relative;top:auto;right:auto;z-index:1;width:100%;margin-top:7px;padding:6px;border:1px solid #334155;border-radius:10px;background:#0b1425;box-shadow:0 12px 28px rgba(0,0,0,.32);box-sizing:border-box;}
+.sidebarAccountMenu button{display:flex;width:100%;min-height:36px;align-items:center;justify-content:flex-start;gap:9px;padding:9px 10px;border:0;border-radius:7px;background:transparent;color:#cbd5e1;font:inherit;font-size:11px;line-height:1;text-align:left;cursor:pointer;}
+.sidebarAccountMenu button svg{flex:0 0 auto;}
+.sidebarAccountMenu button span{min-width:0;white-space:nowrap;}
+.sidebarAccountMenu button:hover{background:#1e293b;color:#38bdf8;}
+.sidebarAccountMenu button.danger{color:#fca5a5;}
+.sidebarAccountMenu button.danger:hover{background:rgba(127,29,29,.55);color:#fecaca;}
+
+.statusBox{
+
+    background:#162032;
+
+    padding:15px;
+
+    border-radius:12px;
+
+    margin-bottom:20px;
+
+}
+
+.statusTitle{
+
+    display:block;
+
+    color:#94a3b8;
+
+    margin-bottom:10px;
+
+}
+
+.systemHealth{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    font-weight:600;
+
+}
+
+.systemHealth svg{
+
+    filter:drop-shadow(0 0 5px rgba(34,197,94,.85));
+
+    animation:onlinePulse 1.8s ease-in-out infinite;
+
+}
+
+.systemHealth--online{color:#22c55e;}
+.systemHealth--degraded{color:#f59e0b;}
+.systemHealth--offline{color:#ef4444;}
+.systemHealth--checking{color:#94a3b8;}
+
+.systemHealth--degraded svg{filter:drop-shadow(0 0 5px rgba(245,158,11,.8));}
+.systemHealth--offline svg{filter:drop-shadow(0 0 5px rgba(239,68,68,.8));}
+.systemHealth--checking svg{filter:none;}
+
+.healthSummary{
+    margin:8px 0 0;
+    color:#94a3b8;
+    font-size:11px;
+}
+
+.healthServices{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-top:11px;
+}
+
+.healthService{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:4px 7px;
+    border:1px solid #2d3b50;
+    border-radius:999px;
+    background:#0f172a;
+    color:#cbd5e1;
+    font-size:10px;
+}
+
+.healthService i{
+    width:6px;
+    height:6px;
+    border-radius:50%;
+    background:#64748b;
+}
+
+.healthService.isAvailable i{background:#22c55e;}
+.healthService.isUnavailable i{background:#ef4444;}
+
+@keyframes shieldFloat{
+
+    0%,100%{transform:translateY(0) rotateY(0deg);}
+
+    50%{transform:translateY(-7px) rotateY(10deg);}
+
+}
+
+@keyframes logoShine{
+
+    from{background-position:120% 0;}
+
+    to{background-position:-120% 0;}
+
+}
+
+@keyframes onlinePulse{
+
+    0%,100%{transform:scale(.82);opacity:.72;}
+
+    50%{transform:scale(1.12);opacity:1;}
+
+}
+
+.stats{
+
+    margin-bottom:25px;
+
+}
+
+.stat{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    margin-bottom:12px;
+
+}
+
+.stat strong{
+
+    color:#38bdf8;
+
+}
+
+.menu{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:10px;
+
+}
+
+.menu a{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+
+    color:white;
+
+    text-decoration:none;
+
+    padding:14px;
+
+    border-radius:10px;
+
+    transition:.3s;
+
+}
+
+.menu a:hover{
+
+    background:#1e293b;
+
+    transform:translateX(-4px);
+
+}
+
+.active{
+
+    background:#2563eb;
+
+}
+
+.logout{
+
+    margin-top:auto;
+
+    border:none;
+
+    background:#dc2626;
+
+    color:white;
+
+    padding:14px;
+
+    border-radius:10px;
+
+    cursor:pointer;
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    gap:10px;
+
+    font-size:15px;
+
+}
