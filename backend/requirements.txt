@@ -12,7 +12,7 @@ Jinja2==3.1.6
 MarkupSafe==3.0.4
 Pillow>=13.0,<14.0
 PyMySQL==1.2.0
-python-dotenv==1.2.2
+python-dotenv==1.2.4
 reportlab>=5.0,<6.0
 SQLAlchemy==2.0.51
 typing_extensions==4.16.0
