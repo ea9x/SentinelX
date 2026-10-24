@@ -1,5 +1,7 @@
 # SentinelX
 
+[![Source checks](https://github.com/ea9x/SentinelX/actions/workflows/checks.yml/badge.svg?branch=main)](https://github.com/ea9x/SentinelX/actions/workflows/checks.yml)
+
 A local security assessment workspace for authorized analysts. SentinelX queues scans, retains evidence, groups findings, tracks manual review and remediation, compares completed scans, and exports PDF reports.
 
 **Status: experimental, single-service/single-operator deployment.** Do not treat automated findings, a successful scan, or an empty result as proof that a target is secure. This repository is not a certified penetration-testing product or a public multi-tenant scanning service.
@@ -13,6 +15,22 @@ A local security assessment workspace for authorized analysts. SentinelX queues 
 - Cookie-based JWT authentication with CSRF protection, session revocation and optional email-link password recovery.
 - Manual finding review, revision history, conservative comparison and PDF reports.
 - Local encrypted backups with isolated restore verification.
+
+## Screenshots
+
+These screenshots use a synthetic local TLS target and a disposable test account. They show real SSLyze observations in an isolated workflow; no customer targets or production findings are shown. The test database was SQLite; the historical sidebar's MySQL label identifies the integration and does not establish the fixture database engine.
+
+### Compare scans
+
+A controlled certificate replacement removes the expiration observation while the separate self-signed trust warning persists. An absent finding is shown as **not observed**, without automatically marking it fixed.
+
+![English scan comparison showing one observation no longer detected and one persistent observation](docs/images/scan-comparison-en.png)
+
+### Remediation in Arabic
+
+The original occurrence was manually reviewed after the recheck, and its task was then marked completed. New scan occurrences require their own review.
+
+![Arabic remediation page showing a manually fixed certificate occurrence and completed task](docs/images/remediation-ar.png)
 
 ## Supported starting point
 
@@ -68,6 +86,7 @@ Local HTTP serving uses Flask development serving and Vite preview. Keep it on l
 - [Contributing](CONTRIBUTING.md)
 - [Publishing checklist](docs/PUBLISHING.md)
 - [Third-party components](THIRD_PARTY_NOTICES.md)
+- [Draft v0.1.0 preview notes](docs/releases/v0.1.0.md)
 
 ## Rights and license
 
