@@ -18,7 +18,7 @@ A local security assessment workspace for authorized analysts. SentinelX queues 
 
 ## Screenshots
 
-These screenshots use a synthetic local TLS target and a disposable test account. They show real SSLyze observations in an isolated workflow; no customer targets or production findings are shown. The test database was SQLite; the historical sidebar's MySQL label identifies the integration and does not establish the fixture database engine.
+These screenshots use a synthetic local TLS target and a disposable test account. They show real SSLyze observations in an isolated workflow; no customer targets or production findings are shown. The test database was SQLite. Screenshots were captured at different times; service availability reflects each capture and does not establish scan coverage.
 
 ### Compare scans
 
@@ -26,11 +26,11 @@ A controlled certificate replacement removes the expiration observation while th
 
 ![English scan comparison showing one observation no longer detected and one persistent observation](docs/images/scan-comparison-en.png)
 
-### Remediation in Arabic
+### Remediation
 
 The original occurrence was manually reviewed after the recheck, and its task was then marked completed. New scan occurrences require their own review.
 
-![Arabic remediation page showing a manually fixed certificate occurrence and completed task](docs/images/remediation-ar.png)
+![English remediation page showing a manually fixed certificate occurrence and completed task](docs/images/remediation-en.png)
 
 ## Windows setup
 
