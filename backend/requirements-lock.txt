@@ -19,7 +19,7 @@ MarkupSafe==3.0.4
 pillow==13.0.0
 pycparser==3.12
 PyJWT==2.15.1
-PyMySQL==1.2.0
+PyMySQL==1.2.3
 python-dotenv==1.2.4
 PyYAML==6.0.3
 reportlab==5.1.0
