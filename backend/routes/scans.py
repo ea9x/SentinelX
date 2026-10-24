@@ -7,6 +7,7 @@ import json
 import uuid
 
 from flask import Blueprint, jsonify, g, request
+from finding_quality import finding_type, fingerprint, review_data, SEVERITY
 from scan_options import validate_options, encrypt_options
 from job_control import check_cancelled, progress
 from flask_jwt_extended import (
@@ -123,8 +124,26 @@ def _scanner_host(target):
 def _scanner_url(target):
     host = _scanner_host(target)
     port = target.port or 80
-    scheme = "https" if int(port) == 443 else "http"
+    readiness = _service_readiness(target)
+    scheme = "https" if readiness.get('tls') else "http" if readiness.get('http') else "https" if int(port) == 443 else "http"
     return f"{scheme}://{"[" + host + "]" if ":" in host else host}:{port}"
+
+
+def _service_readiness(target):
+    """Cache only within this HTTP request/job; never reuse stale service checks."""
+    from readiness import inspect_target
+    cache = getattr(g, 'service_readiness', None)
+    if cache is None:
+        cache = g.service_readiness = {}
+    key = (_scanner_host(target), target.port or 80)
+    if key not in cache:
+        check_cancelled()
+        try:
+            cache[key] = inspect_target(*key)
+        except (OSError, ValueError):
+            cache[key] = {'tcp_open':None, 'http':None, 'tls':None, 'service':'unknown',
+                          'message':'Service detection was unavailable. Scan coverage requires review.'}
+    return cache[key]
 
 
 def _start_scan(target, tool):
@@ -431,7 +450,7 @@ def _whatweb_findings(
     target,
     technologies,
 ):
-    target_url = _target_url(target)
+    target_url = _scanner_url(target)
 
     findings = []
 
@@ -492,6 +511,9 @@ def _scan_response(
             "vulnerabilities": [
                 {
                     "id": vulnerability.id,
+                "finding_type": finding_type(vulnerability),
+                "fingerprint": fingerprint(vulnerability,target.id),
+                **review_data(vulnerability),
                     "title": vulnerability.title,
                     "severity": (
                         vulnerability.severity
@@ -1098,43 +1120,38 @@ def execute_full(target_id):
 
     tools = {}
     total_findings = 0
-
-    nmap_summary, nmap_count = (
-        _run_full_nmap(target)
-    )
-    tools["nmap"] = nmap_summary
-    total_findings += nmap_count
-
-    whatweb_summary, whatweb_count = (
-        _run_full_whatweb(target)
-    )
-    tools["whatweb"] = whatweb_summary
-    total_findings += whatweb_count
-
-    zap_summary, zap_count = (
-        _run_full_zap(target)
-    )
-    tools["zap"] = zap_summary
-    total_findings += zap_count
-
-    nuclei_summary, nuclei_count = (
-        _run_full_nuclei(target)
-    )
-    tools["nuclei"] = nuclei_summary
-    total_findings += nuclei_count
-
-    ssl_summary, ssl_count = _run_full_sslyze(target)
-    tools["sslyze"] = ssl_summary
-    total_findings += ssl_count
+    readiness = _service_readiness(target)
+    handlers = {'nmap':_run_full_nmap,'whatweb':_run_full_whatweb,'zap':_run_full_zap,
+                'nuclei':_run_full_nuclei,'sslyze':_run_full_sslyze}
+    for name, handler in handlers.items():
+        check_cancelled()
+        reason = None
+        if name != 'nmap':
+            if readiness.get('tcp_open') is False:
+                reason = 'The target port was unreachable during readiness checks. This tool did not run.'
+            elif name == 'sslyze' and readiness.get('tls') is False:
+                reason = 'TLS was not confirmed on this port. TLS checks did not run.'
+            elif name in {'whatweb','zap','nuclei'} and readiness.get('http') is False:
+                reason = 'HTTP or HTTPS was not confirmed on this port. Web checks did not run.'
+        if reason:
+            tools[name] = {'status':'skipped','reason':reason}
+            continue
+        summary, count = handler(target)
+        tools[name] = summary
+        total_findings += count
 
     failed_tools = [name for name, result in tools.items() if result["status"] == "failed"]
     completed_tools = [name for name, result in tools.items() if result["status"] == "completed"]
-    status = "partial" if failed_tools and completed_tools else "failed" if failed_tools else "completed"
+    skipped_tools = [name for name, result in tools.items() if result['status'] == 'skipped']
+    status = 'partial' if completed_tools and (failed_tools or skipped_tools) else 'failed' if failed_tools or skipped_tools else 'completed'
 
     return jsonify(
         {
             "status": status,
             "failed_tools": failed_tools,
+            "skipped_tools": skipped_tools,
+            "readiness": readiness,
+            "coverage_complete": status == 'completed',
             "message": "Full scan completed." if status == "completed" else "Full scan did not complete successfully.",
             "target": target.name,
             "total_vulnerabilities_found": (
@@ -1334,7 +1351,9 @@ def get_scan_details(scan_id):
                     vulnerability.verification_status
                     or "needs_review"
                 ),
-                "risk_score": _finding_risk_score(
+                "finding_type": finding_type(vulnerability),
+                **review_data(vulnerability),
+                "risk_score": 0 if finding_type(vulnerability)=='information' or vulnerability.review_state in {'fixed','false_positive'} or vulnerability.status in {'fixed','ignored'} else _finding_risk_score(
                     vulnerability.severity,
                     vulnerability.confidence,
                 ),
@@ -1347,6 +1366,13 @@ def get_scan_details(scan_id):
             }
         )
 
+    potential_counts={level:0 for level in SEVERITY}
+    active={}
+    for finding in vulnerabilities:
+        if finding_type(finding)=='information' or finding.review_state in {'fixed','false_positive'} or finding.status in {'fixed','ignored'}:continue
+        key=fingerprint(finding,target.id)
+        if key not in active or SEVERITY[finding.severity]>SEVERITY[active[key]]:active[key]=finding.severity
+    for level in active.values():potential_counts[level]+=1
     return jsonify(
         {
             "scan": {
@@ -1379,6 +1405,7 @@ def get_scan_details(scan_id):
             "ports": ports,
             "services": services,
             "severity_counts": severity_counts,
+            "potential_severity_counts": potential_counts,
             "vulnerabilities": (
                 vulnerability_data
             ),
@@ -1417,6 +1444,32 @@ def enqueue_scan(tool, target_id):
     db.session.add(job)
     db.session.commit()
     return jsonify({"job_id": job.id, "status": "queued", "message": "Scan queued."}), 202
+
+@scans_bp.route('/compare',methods=['GET'])
+@jwt_required()
+def compare_scans():
+    from finding_quality import group_scan
+    baseline_id=request.args.get('baseline',type=int);current_id=request.args.get('current',type=int)
+    if not baseline_id or not current_id or baseline_id==current_id:return jsonify(error='Choose two different scans.'),400
+    def owned(scan_id):
+        return Scan.query.join(Target,Scan.target_id==Target.id).filter(Scan.id==scan_id,Target.added_by==_current_user_id()).first()
+    baseline,current=owned(baseline_id),owned(current_id)
+    if not baseline or not current:return jsonify(error='Scan not found.'),404
+    if (baseline.target_id,baseline.tool_used)!=(current.target_id,current.tool_used):return jsonify(error='Compare the same target and tool.'),400
+    if baseline.status!='completed' or current.status!='completed':return jsonify(error='Both scans must be completed before comparison.'),409
+    if (baseline.started_at or datetime.min,baseline.id)>=(current.started_at or datetime.min,current.id):return jsonify(error='Choose an older baseline and a newer scan.'),400
+    include=request.args.get('include_information')=='true'
+    before=group_scan(Vulnerability.query.filter_by(scan_id=baseline.id).all(),baseline.target_id,include)
+    after=group_scan(Vulnerability.query.filter_by(scan_id=current.id).all(),current.target_id,include)
+    uncertain=[group for group in list(before.values())+list(after.values()) if not group['location_complete']]
+    before={key:group for key,group in before.items() if group['location_complete']}
+    after={key:group for key,group in after.items() if group['location_complete']}
+    categories={'new':[after[key] for key in sorted(after.keys()-before.keys())],
+                'persistent':[after[key] for key in sorted(after.keys()&before.keys())],
+                'not_observed':[before[key] for key in sorted(before.keys()-after.keys())]}
+    if uncertain: categories['insufficient_location']=uncertain
+    return jsonify({'baseline':baseline.id,'current':current.id,'summary':{key:len(value) for key,value in categories.items()},
+                    'groups':categories,'warning':'Not observed does not mean fixed. Scan coverage and settings may differ.'}),200
 
 @scans_bp.route("/jobs/<job_id>", methods=["GET"])
 @jwt_required()

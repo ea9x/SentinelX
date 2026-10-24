@@ -98,6 +98,7 @@ def create_report():
             vulnerabilities,
         )
         report.file_path = str(output_path.relative_to(REPORTS_DIRECTORY.parent))
+        report.format_version = 2
         db.session.commit()
     except Exception as error:
         db.session.delete(report)
@@ -148,7 +149,7 @@ def download_report(report_id):
 
     # Older report records may not have a PDF file yet. Generate it lazily so
     # existing records remain useful after enabling server-side PDF exports.
-    if not report.file_path:
+    if not report.file_path or report.format_version != 2:
         try:
             vulnerabilities = Vulnerability.query.filter_by(scan_id=scan.id).all()
             output_path = generate_scan_report(
@@ -160,6 +161,7 @@ def download_report(report_id):
             report.file_path = str(
                 output_path.relative_to(REPORTS_DIRECTORY.parent)
             )
+            report.format_version = 2
             db.session.commit()
         except Exception as error:
             db.session.rollback()

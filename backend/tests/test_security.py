@@ -18,6 +18,157 @@ import routes.reports as reports_module
 
 
 class SentinelXTests(unittest.TestCase):
+    def test_initial_administrator_cli_only_provisions_an_empty_install(self):
+        runner=app.test_cli_runner()
+        args=['create-initial-admin','--username','first-admin','--email','first@example.test']
+        refused=runner.invoke(args=args,input='FixturePassword123!\nFixturePassword123!\n')
+        self.assertNotEqual(refused.exit_code,0);self.assertEqual(User.query.count(),3)
+        db.session.remove();db.drop_all();db.create_all()
+        invalid=runner.invoke(args=args,input='short\nshort\n')
+        self.assertNotEqual(invalid.exit_code,0);self.assertEqual(User.query.count(),0)
+        created=runner.invoke(args=args,input='FixturePassword123!\nFixturePassword123!\n')
+        self.assertEqual(created.exit_code,0,created.output)
+        user=User.query.one();self.assertEqual(user.role,'admin');self.assertTrue(bcrypt.check_password_hash(user.password_hash,'FixturePassword123!'))
+        denied=runner.invoke(args=args,input='DifferentPassword123!\nDifferentPassword123!\n')
+        self.assertNotEqual(denied.exit_code,0);self.assertEqual(User.query.count(),1)
+        self.assertTrue(bcrypt.check_password_hash(User.query.one().password_hash,'FixturePassword123!'))
+    def test_target_activity_preserves_full_job_incomplete_status(self):
+        from routes.targets import serialize
+        from time_utils import utc_now
+        target=self.target();scan=self.scan(target)
+        job=ScanJob(id='full-coverage-activity',target_id=target.id,user_id=self.a.id,tool='full',status='partial',created_at=scan.started_at-timedelta(seconds=1),finished_at=utc_now())
+        db.session.add(job);db.session.commit()
+        result=serialize(target)
+        self.assertEqual(result['last_activity']['status'],'partial');self.assertEqual(result['last_activity']['tool'],'full')
+        self.assertEqual(result['last_scan']['status'],'completed');self.assertEqual(result['last_scan']['findings']['Low'],1)
+        newer=self.scan(target)
+        self.assertEqual(serialize(target)['last_activity']['tool'],'nmap')
+
+    def test_backup_verification_accepts_older_additive_tables_and_rejects_unknown_tables(self):
+        import io,zipfile
+        from cryptography.fernet import Fernet
+        from sqlalchemy import select
+        import maintenance
+        key=Fernet(Fernet.generate_key())
+        tables={table.name:[dict(row) for row in db.session.execute(select(table).order_by(*table.primary_key.columns)).mappings()]
+                for table in db.metadata.sorted_tables if table.name not in {'remediation_tasks','remediation_updates'}}
+        root=Path(self.temp.name);archive=root/'older.sxbackup'
+        def write_snapshot():
+            buffer=io.BytesIO()
+            with zipfile.ZipFile(buffer,'w') as output:
+                output.writestr('database.json',json.dumps({'format':1,'tables':tables},default=maintenance._encode,sort_keys=True))
+            archive.write_bytes(key.encrypt(buffer.getvalue()))
+        write_snapshot()
+        with patch.object(maintenance,'_key',return_value=key),patch.object(maintenance,'RESTORE',root/'restore'):
+            result=maintenance.verify(archive)
+            self.assertEqual(result['tables'],len(db.metadata.tables));self.assertEqual(result['rows'],sum(map(len,tables.values())))
+            self.assertFalse(list((root/'restore').glob('*.sqlite')))
+            tables['unknown_future_table']=[];write_snapshot()
+            with self.assertRaisesRegex(ValueError,'unsupported'):maintenance.verify(archive)
+        self.assertEqual(User.query.count(),3)
+
+    def test_detected_protocol_overrides_port_and_is_cached_per_request(self):
+        from routes.scans import _scanner_url
+        target=self.target()
+        with app.test_request_context(),patch('readiness.inspect_target',return_value={'tcp_open':True,'tls':False,'http':True}) as detect:
+            self.assertEqual(_scanner_url(target),'http://127.0.0.1:443')
+            self.assertEqual(_scanner_url(target),'http://127.0.0.1:443');detect.assert_called_once()
+        target.port=8443
+        with app.test_request_context(),patch('readiness.inspect_target',return_value={'tcp_open':True,'tls':True,'http':True}):
+            self.assertEqual(_scanner_url(target),'https://127.0.0.1:8443')
+
+    def test_full_scan_skips_unconfirmed_protocols_without_claiming_complete_coverage(self):
+        from contextlib import ExitStack
+        target=self.target()
+        for readiness,expected in [
+            ({'tcp_open':False,'http':False,'tls':False},['whatweb','zap','nuclei','sslyze']),
+            ({'tcp_open':True,'http':False,'tls':False},['whatweb','zap','nuclei','sslyze']),
+            ({'tcp_open':True,'http':True,'tls':False},['sslyze']),
+            ({'tcp_open':True,'http':False,'tls':True},['whatweb','zap','nuclei'])]:
+            with ExitStack() as stack:
+                stack.enter_context(patch('readiness.inspect_target',return_value=readiness))
+                mocks={}
+                for tool in ['nmap','whatweb','zap','nuclei','sslyze']:
+                    mocks[tool]=stack.enter_context(patch('routes.scans.run_'+tool+'_scan',return_value={'success':True,'open_ports':[],'vulnerabilities':[],'technologies':[]}))
+                queued=self.mutate('post',f'/api/scans/full/{target.id}')
+                self.assertTrue(process_next_job(app))
+                db.session.expire_all();job=db.session.get(ScanJob,queued.get_json()['job_id']);payload=json.loads(job.result)
+                self.assertEqual(job.status,'partial');self.assertFalse(payload['coverage_complete'])
+                self.assertEqual(payload['failed_tools'],[]);self.assertEqual(payload['skipped_tools'],expected)
+                for tool,mock in mocks.items():
+                    if tool in expected:
+                        mock.assert_not_called();self.assertNotIn('scan_id',payload['tools'][tool])
+                    else: mock.assert_called_once()
+
+    def test_remediation_owner_revision_history_and_completion(self):
+        from models import RemediationTask,RemediationUpdate
+        scan=self.scan(self.target());finding=Vulnerability.query.filter_by(scan_id=scan.id).one()
+        url='/api/remediation/'
+        self.assertEqual(app.test_client().get(url).status_code,401)
+        other_scan=self.scan(self.target(self.b));other=Vulnerability.query.filter_by(scan_id=other_scan.id).one()
+        self.assertEqual(self.mutate('post',url,{'finding_id':other.id}).status_code,404)
+        self.assertEqual(self.client.post(url,json={'finding_id':finding.id}).status_code,401)
+        created=self.mutate('post',url,{'finding_id':finding.id}).get_json();taskurl=url+str(created['id'])
+        self.assertEqual(created['revision'],0)
+        self.assertEqual(self.mutate('post',url,{'finding_id':finding.id}).status_code,409)
+        for body in [{'revision':0,'state':'completed'},{'revision':0,'due_date':'2026-99-99'},{'revision':True},{'revision':0,'owner_id':self.b.id},{'revision':0,'notes':'x'*4001}]:
+            self.assertEqual(self.mutate('put',taskurl,body).status_code,400)
+        saved=self.mutate('put',taskurl,{'revision':0,'state':'in_progress','assignee':self.b.username,'notes':'<script>literal note</script>','due_date':'2026-12-01'})
+        self.assertEqual(saved.status_code,200);self.assertEqual(saved.get_json()['revision'],1)
+        self.assertEqual(self.mutate('put',taskurl,{'revision':0}).status_code,409)
+        history=self.client.get(taskurl+'/history').get_json()
+        self.assertEqual(len(history),2);self.assertEqual(history[0]['notes'],'<script>literal note</script>')
+        stranger=app.test_client();self.login(stranger,email=self.b.email)
+        self.assertEqual(stranger.get(url).get_json()['tasks'],[])
+        self.assertEqual(stranger.get(taskurl+'/history').status_code,404)
+        self.assertEqual(self.mutate('put',taskurl,{'revision':1},client=stranger).status_code,404)
+        self.assertEqual(self.mutate('post',taskurl+'/retest',{},client=stranger).status_code,404)
+        finding.review_state='fixed';db.session.commit()
+        self.assertEqual(self.mutate('put',taskurl,{'revision':1,'state':'completed'}).status_code,200)
+        self.assertEqual(RemediationTask.query.count(),1);self.assertEqual(RemediationUpdate.query.count(),3)
+
+    def test_remediation_candidates_use_latest_active_potential_groups(self):
+        target=self.target();old=self.scan(target);oldfinding=Vulnerability.query.filter_by(scan_id=old.id).one()
+        newer=self.scan(target);current=Vulnerability.query.filter_by(scan_id=newer.id).one()
+        current.severity='High'
+        information=Vulnerability(scan_id=newer.id,title='Open Port: 443/tcp',severity='Critical',source_tool='nmap')
+        suppressed=Vulnerability(scan_id=newer.id,title='Suppressed',severity='Critical',review_state='false_positive')
+        db.session.add_all([information,suppressed]);db.session.commit()
+        rows=self.client.get('/api/remediation/').get_json()['candidates']
+        self.assertEqual([row['finding_id'] for row in rows],[current.id]);self.assertNotEqual(current.id,oldfinding.id)
+        target.is_deleted=True;db.session.commit()
+        self.assertEqual(self.client.get('/api/remediation/').get_json()['candidates'],[])
+
+    def test_remediation_retest_queue_idempotency_restart_and_comparison(self):
+        from models import RemediationTask
+        scan=self.scan(self.target());finding=Vulnerability.query.filter_by(scan_id=scan.id).one()
+        task=self.mutate('post','/api/remediation/',{'finding_id':finding.id,'notes':'Persist across restart'}).get_json()
+        url=f"/api/remediation/{task['id']}/retest"
+        self.assertEqual(self.mutate('post',url,[]).status_code,400)
+        first=self.mutate('post',url,{});self.assertEqual(first.status_code,202)
+        job_id=first.get_json()['last_job_id']
+        self.assertEqual(self.mutate('post',url,{}).get_json()['last_job_id'],job_id)
+        self.assertEqual(ScanJob.query.count(),1)
+        recover_interrupted_jobs(app)
+        self.assertEqual(db.session.get(ScanJob,job_id).status,'queued')
+        self.assertEqual(db.session.get(RemediationTask,task['id']).notes,'Persist across restart')
+        def synthetic_recheck(target_id):
+            from flask import jsonify
+            new=self.scan(db.session.get(Target,target_id))
+            return jsonify(scan_id=new.id),200
+        with patch.dict('scan_worker.SCAN_HANDLERS',{'nmap':synthetic_recheck}):
+            self.assertTrue(process_next_job(app))
+        row=self.client.get('/api/remediation/').get_json()['tasks'][0]
+        self.assertEqual(row['last_job_status'],'completed');self.assertTrue(row['comparison_scan_id'])
+        self.assertEqual(row['review_state'],'needs_review');self.assertEqual(row['state'],'planned')
+        comparison=self.client.get(f"/api/scans/compare?baseline={scan.id}&current={row['comparison_scan_id']}")
+        self.assertEqual(comparison.status_code,200)
+        second=self.mutate('post',url,{}).get_json()['last_job_id']
+        job=db.session.get(ScanJob,second);job.status='running';db.session.commit();recover_interrupted_jobs(app)
+        job=db.session.get(ScanJob,second);db.session.refresh(job)
+        self.assertEqual(job.status,'failed');self.assertEqual(job.stage,'Interrupted')
+        self.assertEqual(self.client.get('/api/remediation/').get_json()['tasks'][0]['comparison_scan_id'],None)
+
     def test_profile_photo_upload_is_retired(self):
         from routes.auth import AVATAR_DIRECTORY
         before={path.name for path in AVATAR_DIRECTORY.iterdir()}
@@ -122,6 +273,124 @@ class SentinelXTests(unittest.TestCase):
             self.assertFalse(response.get_json()['tcp_open'])
             inspect.assert_called_once_with('127.0.0.1',443)
 
+    def test_quality_information_is_not_a_vulnerability_and_duplicates_keep_evidence(self):
+        from finding_quality import finding_type,fingerprint,group_scan
+        target=self.target();scan=self.scan(target);original=Vulnerability.query.filter_by(scan_id=scan.id).one()
+        duplicate=Vulnerability(scan_id=scan.id,title=original.title,severity='High',affected_port=443,source_tool='zap',evidence='second tool evidence')
+        observation=Vulnerability(scan_id=scan.id,title='Open Port: 443/tcp',severity='High',affected_port=443,source_tool='nmap')
+        db.session.add_all([duplicate,observation]);db.session.commit()
+        self.assertEqual(finding_type(observation),'information')
+        self.assertEqual(fingerprint(original,target.id),fingerprint(duplicate,target.id))
+        groups=group_scan([original,duplicate,observation],target.id)
+        self.assertEqual(len(groups),1)
+        self.assertEqual(len(next(iter(groups.values()))['occurrences']),2)
+        stats=self.client.get('/api/vulnerabilities/stats').get_json()
+        self.assertEqual(stats['total'],1);self.assertEqual(stats['by_severity']['High'],1)
+        self.assertEqual(stats['information_records'],1)
+        duplicate.parameter_name='different';db.session.commit()
+        self.assertNotEqual(fingerprint(original,target.id),fingerprint(duplicate,target.id))
+
+    def test_scan_details_preserve_review_revisions_and_information_category(self):
+        scan=self.scan(self.target());finding=Vulnerability.query.filter_by(scan_id=scan.id).one()
+        info=Vulnerability(scan_id=scan.id,title='TLS Configuration Summary',severity='Info',source_tool='sslyze')
+        db.session.add(info);db.session.commit()
+        for state,note in [('confirmed','Verified baseline'),('fixed','Verified subsequent controlled scan')]:
+            details=self.client.get(f'/api/scans/{scan.id}').get_json()
+            rows={row['id']:row for row in details['vulnerabilities']}
+            self.assertEqual(rows[info.id]['finding_type'],'information')
+            self.assertEqual(rows[info.id]['risk_score'],0)
+            self.assertEqual(rows[finding.id]['finding_type'],'potential_vulnerability')
+            self.assertEqual(rows[finding.id]['review_revision'],finding.review_revision)
+            result=self.mutate('put',f'/api/vulnerabilities/{finding.id}/review',{'review_state':state,'review_note':note,'review_revision':rows[finding.id]['review_revision']})
+            self.assertEqual(result.status_code,200,result.get_json())
+            latest=self.client.get(f'/api/scans/{scan.id}').get_json()['vulnerabilities']
+            saved=next(row for row in latest if row['id']==finding.id)
+            self.assertEqual(saved['review_state'],state);self.assertEqual(saved['review_note'],note)
+            self.assertEqual(saved['review_revision'],result.get_json()['review_revision'])
+            self.assertEqual(saved['reviewed_by'],self.a.id);self.assertTrue(saved['reviewed_at'])
+
+    def test_manual_review_revision_audit_and_report_refresh_are_owner_scoped(self):
+        from models import FindingReview,Report
+        target=self.target();scan=self.scan(target);finding=Vulnerability.query.filter_by(scan_id=scan.id).one()
+        report=Report(scan_id=scan.id,generated_by=self.a.id,file_path='generated_reports/old.pdf',format_version=2)
+        db.session.add(report);db.session.commit()
+        url=f'/api/vulnerabilities/{finding.id}/review'
+        for body in [{'review_state':[],'review_revision':0}, {'review_state':'fixed','review_note':'','review_revision':0}, {'review_state':'confirmed','review_revision':True}]:
+            self.assertEqual(self.mutate('put',url,body).status_code,400)
+        response=self.mutate('put',url,{'review_state':'false_positive','review_note':'Verified manually <img src=x>','review_revision':0})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['review_revision'],1)
+        self.assertEqual(self.mutate('put',url,{'review_state':'fixed','review_note':'stale','review_revision':0}).status_code,409)
+        self.assertEqual(FindingReview.query.count(),1)
+        self.assertIsNone(db.session.get(Report,report.id).file_path)
+        self.assertEqual(self.client.get('/api/vulnerabilities/stats').get_json()['total'],0)
+        history=self.client.get(f'/api/vulnerabilities/{finding.id}/reviews').get_json()
+        self.assertEqual(history[0]['reviewed_by'],self.a.id)
+        self.assertIn('<img',history[0]['review_note'])
+        foreign=self.scan(self.target(self.b));foreign_finding=Vulnerability.query.filter_by(scan_id=foreign.id).one()
+        self.assertEqual(self.mutate('put',f'/api/vulnerabilities/{foreign_finding.id}/review',{'review_state':'confirmed','review_revision':0}).status_code,404)
+        self.assertEqual(self.client.get(f'/api/vulnerabilities/{foreign_finding.id}/reviews').status_code,404)
+        restored=self.mutate('put',url,{'review_state':'needs_review','review_note':'Reopened','review_revision':1})
+        self.assertEqual(restored.status_code,200)
+        self.assertEqual(self.client.get('/api/vulnerabilities/stats').get_json()['total'],1)
+        downloaded=self.client.get(f'/api/reports/{report.id}/download')
+        self.assertEqual(downloaded.status_code,200);self.assertTrue(downloaded.data.startswith(b'%PDF-'))
+        self.assertEqual(db.session.get(Report,report.id).format_version,2)
+
+    def test_comparison_groups_new_persistent_and_not_observed_without_claiming_fixed(self):
+        target=self.target();before=self.scan(target)
+        db.session.add(Vulnerability(scan_id=before.id,title='Gone issue',severity='Medium',affected_path='/gone',source_tool='nmap'))
+        after=self.scan(target)
+        db.session.add(Vulnerability(scan_id=after.id,title='New issue',severity='High',affected_path='/new',source_tool='nmap'))
+        db.session.commit()
+        response=self.client.get(f'/api/scans/compare?baseline={before.id}&current={after.id}')
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['summary'],{'new':1,'persistent':1,'not_observed':1})
+        self.assertIn('does not mean fixed',response.get_json()['warning'])
+        self.assertEqual(self.client.get(f'/api/scans/compare?baseline={after.id}&current={before.id}').status_code,400)
+        after.status='failed';db.session.commit()
+        self.assertEqual(self.client.get(f'/api/scans/compare?baseline={before.id}&current={after.id}').status_code,409)
+        other=self.scan(self.target(self.b))
+        self.assertEqual(self.client.get(f'/api/scans/compare?baseline={before.id}&current={other.id}').status_code,404)
+
+    def test_failed_latest_scan_keeps_last_completed_risk_with_warning(self):
+        target=self.target();self.scan(target)
+        db.session.add(Scan(target_id=target.id,tool_used='nmap',status='failed',started_at=datetime.utcnow()))
+        db.session.commit()
+        stats=self.client.get('/api/vulnerabilities/stats').get_json()
+        self.assertEqual(stats['total'],1);self.assertEqual(stats['incomplete_latest_scans'],1)
+
+    def test_comparison_does_not_infer_change_from_missing_location_data(self):
+        target=self.target();before=self.scan(target);after=self.scan(target)
+        for scan in [before,after]:db.session.add(Vulnerability(scan_id=scan.id,title='Unknown location',severity='High'))
+        db.session.commit()
+        result=self.client.get(f'/api/scans/compare?baseline={before.id}&current={after.id}').get_json()
+        self.assertEqual(result['summary']['insufficient_location'],2)
+        self.assertEqual(result['summary']['new'],0)
+        self.assertEqual(result['summary']['not_observed'],0)
+
+    def test_quality_schema_upgrade_is_additive_and_idempotent(self):
+        from flask import Flask
+        from sqlalchemy import text,inspect
+        from schema import ensure_schema
+        legacy=Flask('legacy-quality-test');legacy.config['SQLALCHEMY_DATABASE_URI']='sqlite:///:memory:'
+        db.init_app(legacy)
+        with legacy.app_context():
+            with db.engine.begin() as connection:
+                for ddl in ['CREATE TABLE users (id INTEGER PRIMARY KEY)', 'CREATE TABLE targets (id INTEGER PRIMARY KEY)',
+                            'CREATE TABLE scans (id INTEGER PRIMARY KEY)',
+                            'CREATE TABLE vulnerabilities (id INTEGER PRIMARY KEY, status VARCHAR(20), legacy_proof TEXT)',
+                            'CREATE TABLE reports (id INTEGER PRIMARY KEY, file_path TEXT)',
+                            'CREATE TABLE scan_jobs (id VARCHAR(36) PRIMARY KEY, status VARCHAR(20))']:
+                    connection.execute(text(ddl))
+                connection.execute(text("INSERT INTO vulnerabilities VALUES (1,'fixed','retain this evidence')"))
+            ensure_schema();ensure_schema()
+            with db.engine.connect() as connection:
+                row=connection.execute(text('SELECT legacy_proof,review_state,review_revision FROM vulnerabilities')).one()
+                self.assertEqual(tuple(row),('retain this evidence','fixed',0))
+            self.assertTrue(inspect(db.engine).has_table('finding_reviews'))
+            db.session.remove();db.engine.dispose()
+
     def setUp(self):
         app.config.update(TESTING=True, JWT_COOKIE_SECURE=False, ALLOW_REGISTRATION=True,
                           PUBLIC_APP_URL="http://localhost:8088", RESET_TTL_SECONDS=900)
@@ -143,7 +412,8 @@ class SentinelXTests(unittest.TestCase):
         report_root = Path(self.temp.name)/"generated_reports"
         report_root.mkdir()
         self.patches = [patch.object(report_generator, "REPORTS_DIRECTORY", report_root),
-                        patch.object(reports_module, "REPORTS_DIRECTORY", report_root)]
+                        patch.object(reports_module, "REPORTS_DIRECTORY", report_root),
+                        patch('readiness.inspect_target',side_effect=lambda host,port:{'host':host,'port':port,'tcp_open':True,'http':True,'tls':port==443,'service':'https' if port==443 else 'http','certificate_validated':False})]
         for item in self.patches: item.start()
 
     def tearDown(self):
@@ -254,6 +524,29 @@ class SentinelXTests(unittest.TestCase):
         record.expires_at=datetime.utcnow()-timedelta(seconds=1)
         db.session.commit()
         self.assertEqual(self.client.post("/api/auth/password/reset",json={"token":token,"new_password":"Replacement456!"}).status_code,401)
+
+    def test_account_security_changes_invalidate_outstanding_reset_links(self):
+        for change in ['password', 'email']:
+            with self.subTest(change=change):
+                email=self.a.email
+                password='Replacement123!' if change == 'email' else 'Password123!'
+                with patch('routes.auth.send_password_reset_link') as send:
+                    self.client.post('/api/auth/password/forgot',json={'email':email})
+                    token=send.call_args.args[1].split('#token=')[1]
+                if change == 'password':
+                    result=self.mutate('put','/api/auth/password',{'current_password':password,'new_password':'Replacement123!'})
+                else:
+                    result=self.mutate('put','/api/auth/profile',{'email':'updated@example.test','current_password':password})
+                self.assertEqual(result.status_code,200,result.get_json())
+                self.assertEqual(self.client.get('/api/auth/me').status_code,200)
+                rejected=self.client.post('/api/auth/password/reset',json={'token':token,'new_password':'AttackerReplacement123!'})
+                self.assertEqual(rejected.status_code,401)
+                self.assertTrue(bcrypt.check_password_hash(self.a.password_hash,'Replacement123!'))
+        # A fresh link sent after the change remains usable.
+        with patch('routes.auth.send_password_reset_link') as send:
+            self.client.post('/api/auth/password/forgot',json={'email':'updated@example.test'})
+            token=send.call_args.args[1].split('#token=')[1]
+        self.assertEqual(self.client.post('/api/auth/password/reset',json={'token':token,'new_password':'FinalReplacement123!'}).status_code,200)
 
     def test_reset_email_failures_do_not_reveal_account_existence(self):
         with patch("routes.auth.send_password_reset_link", side_effect=RuntimeError("test SMTP unavailable")):

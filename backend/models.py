@@ -183,6 +183,11 @@ class Vulnerability(db.Model):
         default="needs_review",
     )
 
+    review_state = db.Column(db.String(30), nullable=False, default='needs_review', server_default='needs_review')
+    review_note = db.Column(db.Text)
+    review_revision = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    reviewed_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    reviewed_at = db.Column(db.DateTime)
     created_at = db.Column(
         db.DateTime,
         default=utc_now,
@@ -203,6 +208,7 @@ class Report(db.Model):
         db.ForeignKey("users.id"),
     )
     file_path = db.Column(db.String(255))
+    format_version = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     created_at = db.Column(
         db.DateTime,
         default=utc_now,
@@ -237,3 +243,40 @@ class AuthRateLimit(db.Model):
     key = db.Column(db.String(64), primary_key=True)
     hits = db.Column(db.Integer, nullable=False, default=1)
     expires_at = db.Column(db.Integer, nullable=False, index=True)
+
+
+class FindingReview(db.Model):
+    __tablename__ = 'finding_reviews'
+    id = db.Column(db.Integer, primary_key=True)
+    vulnerability_id = db.Column(db.Integer, db.ForeignKey('vulnerabilities.id'), nullable=False, index=True)
+    reviewer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    previous_state = db.Column(db.String(30), nullable=False)
+    new_state = db.Column(db.String(30), nullable=False)
+    note = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+
+class RemediationTask(db.Model):
+    __tablename__ = 'remediation_tasks'
+    id = db.Column(db.Integer, primary_key=True)
+    finding_id = db.Column(db.Integer, db.ForeignKey('vulnerabilities.id'), nullable=False, unique=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    assignee = db.Column(db.String(100), nullable=False, default='')
+    due_date = db.Column(db.Date)
+    notes = db.Column(db.Text, nullable=False, default='')
+    state = db.Column(db.String(30), nullable=False, default='planned')
+    revision = db.Column(db.Integer, nullable=False, default=0)
+    last_job_id = db.Column(db.String(36), db.ForeignKey('scan_jobs.id'))
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class RemediationUpdate(db.Model):
+    __tablename__ = 'remediation_updates'
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey('remediation_tasks.id'), nullable=False, index=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    state = db.Column(db.String(30), nullable=False)
+    assignee = db.Column(db.String(100), nullable=False)
+    due_date = db.Column(db.Date)
+    notes = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)

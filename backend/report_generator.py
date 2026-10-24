@@ -1,4 +1,5 @@
 import re
+from finding_quality import finding_type, fingerprint
 from collections import Counter, OrderedDict
 from html import escape
 from pathlib import Path
@@ -86,6 +87,7 @@ def _verification_label(value):
 
 
 def _risk_score(finding):
+    if finding_type(finding)=="information" or getattr(finding,"review_state",None) in {"fixed","false_positive"} or getattr(finding,"status",None) in {"fixed","ignored"}: return 0.0
     stored = getattr(finding, "risk_score", None)
     if stored not in (None, ""):
         try:
@@ -138,6 +140,7 @@ def _severity_color(severity):
 
 
 def _overall_risk(vulnerabilities):
+    vulnerabilities=[finding for finding in vulnerabilities if _risk_score(finding)>0]
     if not vulnerabilities:
         return "None", 0.0
     highest = max(vulnerabilities, key=_risk_score)
@@ -160,6 +163,12 @@ def _location(finding):
             path = ""
 
     return {
+        "id": finding.id,
+        "severity": finding.severity,
+        "review_state":getattr(finding,"review_state","needs_review"),
+        "review_note":getattr(finding,"review_note",None),
+        "reviewed_by":getattr(finding,"reviewed_by",None),
+        "reviewed_at":str(getattr(finding,"reviewed_at",None) or "Not reviewed"),
         "url": url,
         "path": path,
         "port": port,
@@ -182,18 +191,14 @@ def _group_findings(vulnerabilities):
     )
 
     for finding in ordered:
-        key = (
-            _plain(getattr(finding, "title", None)),
-            _normalize_severity(getattr(finding, "severity", None)),
-            _plain(getattr(finding, "cve_id", None), ""),
-            _plain(getattr(finding, "description", None), ""),
-            _plain(getattr(finding, "ai_recommendation", None), ""),
-        )
+        key = fingerprint(finding, 0)
         if key not in groups:
             groups[key] = {
                 "finding": finding,
                 "locations": [],
+                "findings": [],
             }
+        groups[key]["findings"].append(finding)
         location = _location(finding)
         if location not in groups[key]["locations"]:
             groups[key]["locations"].append(location)
@@ -296,15 +301,13 @@ def generate_scan_report(report, scan, target, vulnerabilities):
     )
 
     vulnerabilities = list(vulnerabilities or [])
-    severity_counts = Counter(
-        _normalize_severity(getattr(item, "severity", None))
-        for item in vulnerabilities
-    )
+    active_groups=_group_findings([item for item in vulnerabilities if _risk_score(item)>0])
+    severity_counts = Counter(_normalize_severity(group["finding"].severity) for group in active_groups)
     overall_risk, highest_score = _overall_risk(vulnerabilities)
     needs_review = sum(
         1
         for item in vulnerabilities
-        if _verification_label(getattr(item, "verification_status", None)) == "Needs Review"
+        if finding_type(item)!="information" and getattr(item,"review_state","needs_review")=="needs_review"
     )
     grouped_findings = _group_findings(vulnerabilities)
 
@@ -356,13 +359,14 @@ def generate_scan_report(report, scan, target, vulnerabilities):
     story.extend([summary_table, Paragraph("Executive Summary", heading_style)])
     if scan.status != 'completed':
         story.append(Paragraph('<b>INCOMPLETE SCAN:</b> The scan did not complete. Findings below are partial evidence; missing findings must not be interpreted as proof of safety.',body_style))
+    story.append(Paragraph('Overall risk and severity totals exclude informational observations and findings manually marked fixed or false positive. All historical evidence is retained below. Manual decisions are not scanner confirmation.',body_style))
     story.append(Paragraph('Automated alerts require validation. Confidence describes the scanner evidence and does not mean that exploitation or business impact has been confirmed. Similar findings are grouped below; their individual locations are retained.',body_style))
 
     executive_data = [
         [
             Paragraph("<b>Overall Risk</b>", label_style),
             Paragraph("<b>Highest Score</b>", label_style),
-            Paragraph("<b>Needs Review</b>", label_style),
+            Paragraph("<b>Occurrences to Review</b>", label_style),
             Paragraph("<b>Unique Findings</b>", label_style),
         ],
         [
@@ -455,7 +459,7 @@ def generate_scan_report(report, scan, target, vulnerabilities):
         severity = _normalize_severity(getattr(finding, "severity", None))
         confidence = _normalize_confidence(getattr(finding, "confidence", None))
         verification = _verification_label(getattr(finding, "verification_status", None))
-        score = _risk_score(finding)
+        score = max(_risk_score(item) for item in group["findings"])
         cve = _plain(getattr(finding, "cve_id", None), "")
 
         header = Table(
@@ -482,7 +486,7 @@ def generate_scan_report(report, scan, target, vulnerabilities):
         metadata = [
             Paragraph(f"<b>Risk Score</b><br/>{score:.1f} / 10", small_style),
             Paragraph(f"<b>Confidence</b><br/>{_text(confidence)}", small_style),
-            Paragraph(f"<b>Review Status</b><br/>{_text(verification)}", small_style),
+            Paragraph(f"<b>Scanner Assessment</b><br/>{_text(verification)}", small_style),
             Paragraph(f"<b>Affected Locations</b><br/>{len(locations)}", small_style),
         ]
         metadata_table = Table([metadata], colWidths=[41 * mm] * 4)
@@ -500,7 +504,10 @@ def generate_scan_report(report, scan, target, vulnerabilities):
             )
         )
 
-        finding_block = [header, Spacer(1, 1.2 * mm), metadata_table]
+        category='INFORMATION' if finding_type(finding)=='information' else 'POTENTIAL VULNERABILITY'
+        finding_block = [header, Spacer(1, 1.2 * mm), metadata_table,Paragraph(category,small_style)]
+        for location in locations:
+            finding_block.append(Paragraph(f"<b>Manual review #{location['id']}:</b> {_text(location['review_state'])} | {_text(location['reviewed_at'])} | Reviewer: {_text(location['reviewed_by'])} | Source severity: {_text(location['severity'])}<br/>{_text(location['review_note'] or 'No manual review note.')}",small_style))
         if cve:
             finding_block.extend([Spacer(1, 1 * mm), Paragraph(f"<b>Reference:</b> {_text(cve)}", small_style)])
 
