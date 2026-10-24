@@ -1,0 +1,22 @@
+name: Bug report
+description: Report a reproducible non-sensitive problem.
+body:
+  - type: markdown
+    attributes:
+      value: "For security vulnerabilities, use SECURITY.md. Do not upload credentials, private targets or reports."
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce on a disposable local setup
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Commit, OS, Python, Node and installation method
