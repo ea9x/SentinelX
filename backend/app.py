@@ -1,6 +1,7 @@
 import os
 import shutil
 import json
+from http.client import HTTPException
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlencode
@@ -99,7 +100,7 @@ def system_health():
 
     try:
         db.session.execute(db.text("SELECT 1"))
-        checks["database"] = {"available": True, "label": "MySQL"}
+        checks["database"] = {"available": True, "label": "SQLite" if db.engine.dialect.name == "sqlite" else "MySQL"}
     except Exception as error:
         checks["database"] = {
             "available": False,
@@ -153,7 +154,7 @@ def system_health():
             "label": "OWASP ZAP",
             "version": zap_data.get("version"),
         }
-    except (URLError, TimeoutError, ValueError):
+    except (URLError, TimeoutError, ValueError, OSError, HTTPException):
         checks["zap"] = {"available": False, "label": "OWASP ZAP"}
 
     available_count = sum(

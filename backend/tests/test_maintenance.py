@@ -35,3 +35,17 @@ class MaintenanceTests(unittest.TestCase):
             with patch.object(maintenance,'RESTORE',folder),patch.object(maintenance,'_key',return_value=cipher):
                 with self.assertRaises(InvalidToken): maintenance.verify(path)
             self.assertEqual(list(folder.glob('restore-check-*.sqlite')),[])
+
+    def test_sqlite_startup_does_not_wait_for_mysql(self):
+        from unittest.mock import Mock
+        import os
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root=Path(directory);state={8080:True,5000:False,8088:True,5173:True};ports=[]
+            def listening(port):
+                ports.append(port);return state.get(port,False)
+            def launch(*args,**kwargs):state[5000]=True;return Mock()
+            with patch.object(maintenance,'PROJECT',root),patch.object(maintenance,'LOCAL',root/'.local'),patch.dict(os.environ,{'DATABASE_URL':'sqlite:///:memory:'}),patch.object(maintenance,'_listening',side_effect=listening),patch.object(maintenance.subprocess,'Popen',side_effect=launch),patch.object(maintenance,'backup',return_value={}),patch('app.system_health') as health:
+                health.__wrapped__=Mock(return_value=(Mock(get_json=lambda:{}),200))
+                maintenance._start_services()
+                self.assertNotIn(3306,ports)
+

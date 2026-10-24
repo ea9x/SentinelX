@@ -18,6 +18,14 @@ import routes.reports as reports_module
 
 
 class SentinelXTests(unittest.TestCase):
+    def test_health_reports_zap_disconnect_as_unavailable_and_labels_sqlite(self):
+        from http.client import RemoteDisconnected
+        with patch('app.urlopen',side_effect=RemoteDisconnected('Synthetic local service disconnect')):
+            response=self.client.get('/api/health')
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['checks']['database']['label'],'SQLite')
+        self.assertFalse(response.get_json()['checks']['zap']['available'])
+
     def test_initial_administrator_cli_only_provisions_an_empty_install(self):
         runner=app.test_cli_runner()
         args=['create-initial-admin','--username','first-admin','--email','first@example.test']

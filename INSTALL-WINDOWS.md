@@ -2,7 +2,17 @@
 
 The clean installation rehearsal used Python 3.12.14, Node 24.19.0, and a separate MySQL 8.0.46 instance on the existing Windows host. It is not a clean-machine/VM certification. Python 3.15 failed to build PyYAML during the clean installation test; use the tested Python 3.12 environment for a new install. An existing functioning environment does not need to be replaced.
 
-## New installation
+## Guided installation
+
+Install Python 3.12 with the Windows launcher and Node.js 24, extract the source into a writable folder, then open **Install SentinelX.cmd**. It installs Python/npm dependencies, builds the frontend, creates configuration only if absent and guides first-administrator creation. Existing configuration and accounts are retained.
+
+Choose **SQLite local trial** to evaluate the application without manually provisioning MySQL. The database stays in `.local/sentinelx.sqlite`. This option does not install scanner runtimes and is not certified for concurrent/multi-user operation. Choose **MySQL** only after creating a dedicated database/user; enter its password in the hidden prompt. No database root password is requested.
+
+A setup preflight is available as `py -3.12 scripts/setup_windows.py --check-only`; it changes no configuration or services. The normal Python setup command omits service startup; the double-click launcher passes `--start`. Unattended `--mode sqlite --non-interactive` deliberately leaves the first administrator unprovisioned and does not start services.
+
+If Windows blocks a script under your device policy, use an allowed terminal workflow or consult the device administrator; do not disable protection to install this application.
+
+## Manual MySQL installation
 
 1. Install Python 3.12, Node 24, MySQL and the required scanners from their official distributions. Keep scanner listeners on loopback. Nmap, Ruby/WhatWeb, Nuclei and SSLyze must be executable by the user; file presence alone does not establish that Windows permits execution.
 2. From the project folder, create the environment with `py -3.12 -m venv backend\venv`, then run `backend\venv\Scripts\python.exe -m pip install -r backend\requirements.txt` and `npm ci --prefix frontend`.

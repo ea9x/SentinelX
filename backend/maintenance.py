@@ -116,6 +116,12 @@ def _listening(port):
     except OSError: return False
 
 
+def uses_sqlite():
+    from sqlalchemy.engine import make_url
+    value = os.getenv('DATABASE_URL')
+    return bool(value and make_url(value).get_backend_name() == 'sqlite')
+
+
 def _start_services():
     from dotenv import load_dotenv
     load_dotenv(PROJECT/'backend/.env')
@@ -129,13 +135,14 @@ def _start_services():
         zap=Path(os.environ.get('PROGRAMFILES',r'C:\Program Files'))/'ZAP/Zed Attack Proxy/ZAP.exe'
         if zap.exists() and os.getenv('ZAP_API_KEY'): launch([str(zap),'-daemon','-host','127.0.0.1','-port','8080','-config','api.key='+os.getenv('ZAP_API_KEY','')],zap.parent,'zap.log')
     if not _listening(5000):
-        for _ in range(30):
-            if _listening(3306): break
-            time.sleep(2)
-        else: raise RuntimeError('MySQL is unavailable. Start its Windows service and try again.')
+        if not uses_sqlite():
+            for _ in range(30):
+                if _listening(3306): break
+                time.sleep(2)
+            else: raise RuntimeError('MySQL is unavailable. Start its Windows service and try again.')
         launch([str(PROJECT/'backend/venv/Scripts/python.exe'),'-B','app.py'],PROJECT/'backend','backend.log')
     if not _listening(8088):
-        node=Path(os.environ.get('PROGRAMFILES',r'C:\Program Files'))/'nodejs/node.exe'
+        node=Path(__import__('shutil').which('node') or str(Path(os.environ.get('PROGRAMFILES',r'C:\Program Files'))/'nodejs/node.exe'))
         launch([str(node),str(PROJECT/'frontend/node_modules/vite/bin/vite.js'),'preview','--host','127.0.0.1','--port','8088','--strictPort'],PROJECT/'frontend','frontend.log')
     if not _listening(5173):
         launch([str(PROJECT/'backend/venv/Scripts/python.exe'),'-B','legacy_redirect.py'],PROJECT/'backend','legacy-redirect.log')

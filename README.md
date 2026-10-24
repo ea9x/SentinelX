@@ -32,28 +32,34 @@ The original occurrence was manually reviewed after the recheck, and its task wa
 
 ![Arabic remediation page showing a manually fixed certificate occurrence and completed task](docs/images/remediation-ar.png)
 
-## Supported starting point
+## Windows setup
 
-The Windows installation path was rehearsed with Python 3.12, Node 24 and MySQL 8. Python 3.15 is not a supported fresh-install target. Start with [Windows installation](INSTALL-WINDOWS.md). [Docker](DOCKER-SETUP.md) is experimental and has not passed an end-to-end Docker build/run check in this release.
+Install **Python 3.12** (including the Windows Python launcher) and **Node.js 24**, extract the source, and double-click **Install SentinelX.cmd**.
+
+The guided setup checks these runtimes, creates the Python environment, installs locked dependencies, builds the frontend, creates private configuration only when absent, and prompts for the first administrator. It does not create a default account or overwrite existing configuration.
+
+Choose one database mode:
+
+- **SQLite local trial (default):** creates a local database under `.local/`; no separate MySQL service is needed. Use this for a first local evaluation. This mode has isolated workflow validation, not a multi-user/load certification.
+- **Existing MySQL:** provide a dedicated database/user you have already created. The setup does not request database root credentials or provision a server.
+
+Scanner runtimes are separate prerequisites. Missing tools remain unavailable; PATH discovery is not a successful scan or proof that a tool is executable. Configure Nmap, Ruby/WhatWeb, Nuclei, SSLyze and ZAP using [Windows installation](INSTALL-WINDOWS.md). Login does not depend on SMTP; password recovery does.
+
+For a read-only setup check:
 
 ```powershell
-py -3.12 -m venv backend\venv
-backend\venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-npm ci --prefix frontend
-py -3.12 scripts\configure_local.py
+py -3.12 scripts/setup_windows.py --check-only
 ```
 
-Create your dedicated MySQL database/user, enter the database password in the newly generated `backend/.env`, and install/configure the scanners. Match the generated ZAP API key in your ZAP service. Then create the first account locally:
+For guided setup without starting services automatically:
 
 ```powershell
-cd backend
-venv\Scripts\python.exe -m flask --app app create-initial-admin
-cd ..
-npm run build --prefix frontend
-.\start_local.ps1
+py -3.12 scripts/setup_windows.py
 ```
 
-Open `http://127.0.0.1:8088/login`. There are no shipped accounts or default passwords. Public registration is disabled by default. Login does not require SMTP; password recovery does.
+The installer may need network access for Python/npm dependencies. Review any installation error before retrying. Start an existing configured installation with `start_local.ps1`, then open `http://127.0.0.1:8088/login`.
+
+Python 3.15 is not a supported fresh-install target. Existing functioning installations retain their current database and environment. [Docker](DOCKER-SETUP.md) remains experimental without complete end-to-end build/run validation.
 
 ## Tests
 
@@ -75,7 +81,7 @@ The GitHub workflow runs these checks on Windows and Linux. A workflow file is n
 
 ## Operational boundaries
 
-The local launcher starts a background Windows backend supervisor. It restarts a backend only when port 5000 is closed; it never kills a process occupying that port. Interrupted scans are marked failed and require an explicit new scan. [Operations](docs/OPERATIONS.md) explains stopping supervision and troubleshooting.
+The local launcher starts a background Windows frontend/backend supervisor. It restarts a backend or frontend only when its port is closed; it never kills a process occupying a port. Interrupted scans are marked failed and require an explicit new scan. [Operations](docs/OPERATIONS.md) explains stopping supervision and troubleshooting.
 
 Local HTTP serving uses Flask development serving and Vite preview. Keep it on loopback. TLS termination, Secure cookies, a production server, destination restrictions, scanner isolation, monitoring and independent review are required before internet deployment. Docker binds its frontend to loopback by default.
 

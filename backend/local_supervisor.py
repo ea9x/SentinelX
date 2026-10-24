@@ -1,10 +1,11 @@
-"""Windows local backend supervisor. Never terminates a listening process."""
+"""Windows local frontend/backend supervisor. Never terminates a listening process."""
 import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
 import socket
+import shutil
 import subprocess
 import sys
 import time
@@ -13,6 +14,7 @@ from urllib.request import urlopen
 PROJECT = Path(__file__).resolve().parent.parent
 LOCAL = PROJECT / '.local'
 BACKEND_PORT = 5000
+FRONTEND_PORT = 8088
 
 
 def backend_state():
@@ -36,6 +38,30 @@ def check_backend(start_backend):
         start_backend()
         return 'restarted'
     return state
+
+
+def frontend_state():
+    try:
+        with urlopen(f'http://127.0.0.1:{FRONTEND_PORT}/login', timeout=3) as response:
+            page = response.read(128 * 1024).decode('utf-8', errors='replace')
+        if '<title>SentinelX | Security Workspace</title>' in page and 'id="root"' in page:
+            return 'healthy'
+    except (OSError, ValueError):
+        pass
+    try:
+        with socket.create_connection(('127.0.0.1', FRONTEND_PORT), timeout=1):
+            return 'occupied'
+    except OSError:
+        return 'stopped'
+
+
+def check_services(start_backend, start_frontend):
+    backend = check_backend(start_backend)
+    frontend = frontend_state()
+    if frontend == 'stopped':
+        start_frontend()
+        frontend = 'restarted'
+    return {'backend': backend, 'frontend': frontend}
 
 
 def supervise():
@@ -62,19 +88,27 @@ def supervise():
                 subprocess.Popen([sys.executable, '-B', str(PROJECT / 'backend/app.py')],
                     cwd=PROJECT / 'backend', stdin=subprocess.DEVNULL, stdout=output, stderr=output,
                     creationflags=subprocess.CREATE_NO_WINDOW, close_fds=True)
+        def start_frontend():
+            node = shutil.which('node') or str(Path(os.environ.get('PROGRAMFILES', r'C:\Program Files')) / 'nodejs/node.exe')
+            vite = PROJECT / 'frontend/node_modules/vite/bin/vite.js'
+            if not vite.is_file():
+                raise RuntimeError('Frontend dependencies are missing. Run the installer or npm ci first.')
+            with (LOCAL / 'frontend.log').open('ab') as output:
+                subprocess.Popen([node, str(vite), 'preview', '--host', '127.0.0.1', '--port', str(FRONTEND_PORT), '--strictPort'],
+                    cwd=PROJECT / 'frontend', stdin=subprocess.DEVNULL, stdout=output, stderr=output,
+                    creationflags=subprocess.CREATE_NO_WINDOW, close_fds=True)
         delay = 10
         try:
-            logger.info('Local backend supervision started.')
+            logger.info('Local frontend/backend supervision started.')
             while not (LOCAL / 'stop-supervisor').exists():
                 try:
-                    state = check_backend(start_backend)
-                    if state == 'restarted':
-                        logger.warning('Backend port was closed; started a new backend. Interrupted scans are recovered as failed, never silently resumed.')
-                        delay = min(60, delay * 2)
-                    elif state == 'healthy':
-                        delay = 10
-                    else:
-                        logger.warning('Port 5000 is occupied but backend identity is unconfirmed. No process was stopped.')
+                    states = check_services(start_backend, start_frontend)
+                    for service, state in states.items():
+                        if state == 'restarted':
+                            logger.warning('%s port was closed; started a replacement. Interrupted scans are not silently resumed.', service)
+                        elif state == 'occupied':
+                            logger.warning('%s port is occupied but service identity is unconfirmed. No process was stopped.', service)
+                    delay = min(60, delay * 2) if 'restarted' in states.values() else 10
                 except Exception:
                     logger.exception('Backend supervision check failed.')
                     delay = min(60, delay * 2)
