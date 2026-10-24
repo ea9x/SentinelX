@@ -7,7 +7,7 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     NUCLEI_PATH=/usr/local/bin/nuclei \
-    SSLYZE_PATH=/usr/local/bin/sslyze \
+    SSLYZE_PATH=/opt/sentinelx-scanners/sslyze/bin/sslyze \
     WHATWEB_PATH=/opt/whatweb/whatweb
 
 RUN apt-get update \
@@ -22,7 +22,16 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY backend/requirements.txt backend/requirements-docker.txt ./
-RUN pip install --no-cache-dir -r requirements-docker.txt
+RUN pip install --no-cache-dir -r requirements-docker.txt \
+    && pip check
+
+# Scanner dependencies are isolated from backend cryptography requirements.
+COPY backend/requirements-sslyze.txt /tmp/requirements-sslyze.txt
+RUN python -m venv /opt/sentinelx-scanners/sslyze \
+    && /opt/sentinelx-scanners/sslyze/bin/python -m pip install --no-cache-dir -r /tmp/requirements-sslyze.txt \
+    && /opt/sentinelx-scanners/sslyze/bin/python -m pip check \
+    && /opt/sentinelx-scanners/sslyze/bin/sslyze --help > /dev/null \
+    && rm /tmp/requirements-sslyze.txt
 
 ADD https://github.com/urbanadventurer/WhatWeb/archive/d279d93042d034f3fd29d5a893d44ccc0595d3f8.tar.gz /tmp/whatweb.tar.gz
 RUN mkdir -p /opt/whatweb && tar -xzf /tmp/whatweb.tar.gz --strip-components=1 -C /opt/whatweb && rm /tmp/whatweb.tar.gz

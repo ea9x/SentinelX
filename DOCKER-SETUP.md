@@ -13,3 +13,9 @@ Use `docker compose ps` and `docker compose logs backend worker frontend` to dia
 Stop with `docker compose down`. This preserves named volumes. **Do not use `down -v` unless you intend to destroy the database/reports volumes.** Preserve a database backup before updates. Changing a database password in `.env` does not rotate credentials inside an existing MySQL volume.
 
 Local Windows encrypted backup commands and supervisor are not Docker backup/restore tooling. A full container-volume recovery requires a separate rehearsal. Image/runtime hardening, HTTPS, production cookie configuration, vulnerability scanning and end-to-end Docker validation remain release work. Docker has not been certified production-ready.
+
+## SSLyze dependency isolation
+
+The image installs SSLyze 6.3.1 into `/opt/sentinelx-scanners/sslyze`, separately from the application interpreter. SSLyze requires `cryptography>=43,<47`, while the backend requires `cryptography>=50,<51`; installing both in one environment fails dependency resolution. `SSLYZE_PATH` points at the dedicated scanner executable. Keep scanner dependencies in `backend/requirements-sslyze.txt` and backend dependencies in `backend/requirements-docker.txt`.
+
+Build steps run `pip check` in both environments and verify that the scanner CLI starts. These checks do not replace a complete image build and an isolated TLS scan. The full Docker stack remains unverified; this change has separate dependency-resolution validation only.
