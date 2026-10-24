@@ -6,7 +6,7 @@ Flask-Bcrypt>=1.0,<2.0
 flask-cors==6.0.5
 Flask-JWT-Extended>=4.6,<5.0
 Flask-SQLAlchemy==3.1.1
-greenlet==3.5.3
+greenlet==3.5.6
 itsdangerous==2.2.0
 Jinja2==3.1.6
 MarkupSafe==3.0.3
