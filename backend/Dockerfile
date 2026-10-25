@@ -16,7 +16,6 @@ RUN apt-get update \
         ca-certificates \
         nmap \
         ruby-full \
-    && gem install bundler --no-document \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -35,10 +34,12 @@ RUN python -m venv /opt/sentinelx-scanners/sslyze \
 
 ADD https://github.com/urbanadventurer/WhatWeb/archive/d279d93042d034f3fd29d5a893d44ccc0595d3f8.tar.gz /tmp/whatweb.tar.gz
 RUN mkdir -p /opt/whatweb && tar -xzf /tmp/whatweb.tar.gz --strip-components=1 -C /opt/whatweb && rm /tmp/whatweb.tar.gz
-RUN cd /opt/whatweb \
-    && bundle config set without "development test mongo rchardet" \
-    && bundle install \
-    && chmod +x /opt/whatweb/whatweb
+# Install only the three gems required by this pinned WhatWeb runtime.
+RUN gem install ipaddr --version 1.3.0 --no-document \
+    && gem install addressable --version 2.9.0 --no-document \
+    && gem install json --version 3.1.0 --no-document \
+    && chmod +x /opt/whatweb/whatweb \
+    && /opt/whatweb/whatweb --version
 
 COPY --from=nuclei-builder /go/bin/nuclei /usr/local/bin/nuclei
 COPY backend /app

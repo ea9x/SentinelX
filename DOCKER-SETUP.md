@@ -1,6 +1,6 @@
 # Experimental Docker setup
 
-This stack defines frontend, backend, one scan worker, MySQL and ZAP services. A complete Docker build/run has **not** been verified for this source release. Use [Windows installation](INSTALL-WINDOWS.md) for the rehearsed starting point.
+This stack defines frontend, backend, one scan worker, MySQL and ZAP services. A bounded Docker rehearsal on 2026-10-25 built the frontend and a backend with the WhatWeb runtime-gem fix below, and verified login, real SSLyze/WhatWeb jobs, PDF export and persistence across container recreation on a separate fixture stack. This is not a full scanner-coverage, load, security or production certification. [Windows installation](INSTALL-WINDOWS.md) remains available.
 
 1. Install Docker Engine/Desktop and Compose from the vendor.
 2. From the repository root run `python scripts/configure_local.py --docker`. It creates root `.env` with independent random keys/passwords and refuses to overwrite existing configuration.
@@ -18,4 +18,12 @@ Local Windows encrypted backup commands and supervisor are not Docker backup/res
 
 The image installs SSLyze 6.3.1 into `/opt/sentinelx-scanners/sslyze`, separately from the application interpreter. SSLyze requires `cryptography>=43,<47`, while the backend requires `cryptography>=50,<51`; installing both in one environment fails dependency resolution. `SSLYZE_PATH` points at the dedicated scanner executable. Keep scanner dependencies in `backend/requirements-sslyze.txt` and backend dependencies in `backend/requirements-docker.txt`.
 
-Build steps run `pip check` in both environments and verify that the scanner CLI starts. These checks do not replace a complete image build and an isolated TLS scan. The full Docker stack remains unverified; this change has separate dependency-resolution validation only.
+Build steps run `pip check` in both environments and verify that the scanner CLI starts. These checks do not replace a complete image build and an isolated TLS scan. A separate Linux/Python 3.13 fixture stack subsequently verified this separation at runtime: backend cryptography 50.0.2 and scanner cryptography 46.0.7. See the bounded validation notes below.
+
+## Bounded Docker rehearsal (2026-10-25)
+
+The backend build stalled resolving the upstream WhatWeb development/test Gemfile. The image now installs only its three declared required runtime gems (ipaddr 1.3.0, addressable 2.9.0, json 3.1.0), then checks `whatweb --version`. The pinned WhatWeb source and license files are retained. Optional Mongo logging, charset-detection and development gems are not installed.
+
+Validation used a separate Compose project, MySQL volume, reports volume and frontend port 19088. Login and authenticated APIs passed. A real queued SSLyze scan found the deliberately expired/untrusted TLS certificate, missing HSTS and a TLS information record; a real WhatWeb job completed. PDF generation/download passed. Recreating the containers retained the account, two targets, two scans and a report with an identical PDF SHA256. Service health reported six integrations available; this does not mean all six performed end-to-end scans. Nmap, Nuclei and ZAP scan workflows, full container-volume backup/restore, load behavior and production hardening were not certified in this rehearsal.
+
+The test stack uses the same application images with explicit fixture settings; it does not validate every setting or startup ordering of the supplied production-style Compose file. Docker Desktop recovery involved preserving stale runtime-socket directories, not factory-resetting or deleting container data. That local workaround is not a permanent Docker/Windows bug fix.
